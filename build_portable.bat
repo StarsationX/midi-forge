@@ -17,30 +17,31 @@ echo ============================================================
 echo Output: %BUNDLE%
 echo.
 
-REM ---- 0. Stage (reuse existing bundle if Python is intact, for fast iteration) ----
-if not exist "%BUNDLE%\python\python.exe" (
-  if exist "%BUNDLE%" (
-    echo [0/9] Removing broken partial bundle...
-    rmdir /s /q "%BUNDLE%"
-  )
-  mkdir "%BUNDLE%\python"
-
-  REM ---- 1. Download embeddable Python ----
-  echo [1/9] Downloading Python %PYVER% embeddable distribution...
-  curl --fail -L -o "%BUNDLE%\python-embed.zip" "%PYEMBED_URL%"
-  if errorlevel 1 ( echo [ERROR] embeddable Python download failed & exit /b 1 )
-  tar -xf "%BUNDLE%\python-embed.zip" -C "%BUNDLE%\python"
-  if errorlevel 1 ( echo [ERROR] extracting embeddable Python failed & exit /b 1 )
-  del "%BUNDLE%\python-embed.zip"
-
-  REM ---- 2. Enable site-packages in pthfile ----
-  echo [2/9] Configuring embedded Python (enable site-packages)...
-  for %%F in ("%BUNDLE%\python\python*._pth") do (
-    powershell -NoProfile -Command "(Get-Content '%%F') -replace '#import site', 'import site' | Set-Content '%%F'"
-  )
-) else (
+REM ---- 0-2. Set up embedded Python (idempotent via goto to dodge batch nesting bugs) ----
+if exist "%BUNDLE%\python\python.exe" (
   echo [0-2/9] Reusing existing bundle Python at %BUNDLE%\python
+  goto :pip_bootstrap
 )
+
+if exist "%BUNDLE%" (
+  echo [0/9] Removing broken partial bundle...
+  rmdir /s /q "%BUNDLE%"
+)
+mkdir "%BUNDLE%\python"
+
+echo [1/9] Downloading Python %PYVER% embeddable distribution...
+curl --fail -L -o "%BUNDLE%\python-embed.zip" "%PYEMBED_URL%"
+if errorlevel 1 ( echo [ERROR] embeddable Python download failed & exit /b 1 )
+tar -xf "%BUNDLE%\python-embed.zip" -C "%BUNDLE%\python"
+if errorlevel 1 ( echo [ERROR] extracting embeddable Python failed & exit /b 1 )
+del "%BUNDLE%\python-embed.zip"
+
+echo [2/9] Configuring embedded Python (enable site-packages)...
+for %%F in ("%BUNDLE%\python\python*._pth") do (
+  powershell -NoProfile -Command "(Get-Content '%%F') -replace '#import site', 'import site' | Set-Content '%%F'"
+)
+
+:pip_bootstrap
 
 REM ---- 3. Bootstrap pip (skip if already installed) ----
 if not exist "%BUNDLE%\python\Scripts\pip.exe" (
