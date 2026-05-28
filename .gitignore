@@ -1,0 +1,32 @@
+# Created by install.bat - never commit
+venv/
+msst/
+ffmpeg/
+models/
+
+# User work files
+stems/
+*.mid
+*.midi
+*.mp3
+*.wav
+*.flac
+*.m4a
+*.ogg
+*.aac
+*.wma
+*.aiff
+*.png
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
