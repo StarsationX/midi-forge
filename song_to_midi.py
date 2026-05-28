@@ -14,11 +14,10 @@ if Path(FFMPEG_SHARED_BIN).exists():
 import pretty_midi
 import torch
 
-from audio_utils import expand_velocities, normalize_wav_in_place
+from audio_utils import expand_velocities, find_python, normalize_wav_in_place
 
-VENV = ROOT / "venv"
-PY = VENV / "Scripts" / "python.exe"
-TRANSKUN = VENV / "Scripts" / "transkun.exe"
+# sys.executable in dev = venv\Scripts\python.exe; in portable bundle = python\python.exe.
+PY = find_python()
 MSST_DIR = ROOT / "msst"
 BS_ROFO_DIR = ROOT / "models" / "bs_rofo_sw"
 BS_ROFO_YAML = BS_ROFO_DIR / "BS-Rofo-SW-Fixed.yaml"
@@ -90,7 +89,9 @@ def transcribe_to_midi(piano_wav: Path, out_midi: Path) -> None:
     print(f"\n[2/3] Transcribing with Transkun V2 (SOTA piano MIDI)")
     t0 = time.time()
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    cmd = [str(TRANSKUN), str(piano_wav), str(out_midi), "--device", device]
+    # Use `-m transkun.transcribe` instead of transkun.exe so it works in the
+    # portable bundle (no console_scripts shims in embedded Python).
+    cmd = [str(PY), "-m", "transkun.transcribe", str(piano_wav), str(out_midi), "--device", device]
     if SEGMENT_HOP:
         cmd += ["--segmentHopSize", SEGMENT_HOP]
     if SEGMENT_SIZE:

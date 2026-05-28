@@ -6,5 +6,14 @@ if "%~1"=="" (
   pause
   exit /b 1
 )
-"%~dp0venv\Scripts\python.exe" "%~dp0stem_to_midi.py" "%~1"
+if exist "%~dp0python\python.exe" (
+  set "PY=%~dp0python\python.exe"
+) else if exist "%~dp0venv\Scripts\python.exe" (
+  set "PY=%~dp0venv\Scripts\python.exe"
+) else (
+  echo Neither portable Python nor venv found. Run install.bat first.
+  pause
+  exit /b 1
+)
+"%PY%" "%~dp0stem_to_midi.py" "%~1"
 pause

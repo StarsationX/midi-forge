@@ -1,8 +1,21 @@
 """Audio + MIDI helpers shared by the transcription scripts."""
 import os
+import sys
 from pathlib import Path
 
 import numpy as np
+
+
+def find_python() -> Path:
+    """Return the python.exe matching the current interpreter.
+    Converts pythonw.exe -> python.exe so subprocess output reaches stdout.
+    Works in dev (venv) and portable (bundled embedded Python) modes."""
+    exe = Path(sys.executable)
+    if exe.name.lower() == "pythonw.exe":
+        candidate = exe.with_name("python.exe")
+        if candidate.exists():
+            return candidate
+    return exe
 
 
 def _db(x: float) -> float:

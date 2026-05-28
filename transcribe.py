@@ -13,9 +13,9 @@ if Path(FFMPEG_SHARED_BIN).exists():
 import pretty_midi
 import torch
 
-from audio_utils import expand_velocities, load_normalize_save
+from audio_utils import expand_velocities, find_python, load_normalize_save
 
-TRANSKUN = ROOT / "venv" / "Scripts" / "transkun.exe"
+PY = find_python()
 MIN_NOTE_SEC = float(os.environ.get("MIN_NOTE_SEC", "0.05"))
 MIN_VELOCITY = int(os.environ.get("MIN_VELOCITY", "20"))
 PIANO_MIN_PITCH = int(os.environ.get("PIANO_MIN_PITCH", "21"))
@@ -71,7 +71,7 @@ def main() -> int:
 
         print(f"Transcribing with Transkun V2: {src.name}")
         t0 = time.time()
-        cmd = [str(TRANSKUN), str(transcribe_src), str(out_midi), "--device", device]
+        cmd = [str(PY), "-m", "transkun.transcribe", str(transcribe_src), str(out_midi), "--device", device]
         if SEGMENT_HOP:
             cmd += ["--segmentHopSize", SEGMENT_HOP]
         if SEGMENT_SIZE:

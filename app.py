@@ -11,7 +11,9 @@ from PySide6.QtWidgets import (
 )
 
 ROOT = Path(__file__).resolve().parent
-PY = ROOT / "venv" / "Scripts" / "python.exe"
+# sys.executable here is pythonw.exe; flip to python.exe so subprocess stdout is captured.
+_exe = Path(sys.executable)
+PY = _exe.with_name("python.exe") if _exe.name.lower() == "pythonw.exe" else _exe
 SONG_SCRIPT = ROOT / "song_to_midi.py"
 STEM_SCRIPT_PIANO = ROOT / "transcribe.py"
 STEM_SCRIPT_GENERAL = ROOT / "stem_to_midi.py"
