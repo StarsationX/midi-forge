@@ -30,8 +30,11 @@ echo Removing any old archive parts...
 del "%OUT_BASE%.7z.*" 2>nul
 
 echo.
-echo Compressing with LZMA2 ultra (multi-volume, 1900 MB per part)...
-"%SZ%" a -t7z -mx=9 -mmt=on -ms=on -v1900m "%OUT_BASE%.7z" "%BUNDLE%\*" -r
+echo Compressing with LZMA2 (mx=3, no solid mode, multi-volume 1900 MB per part)...
+REM mx=9 + solid mode wants ~7 GB of RAM and takes hours on this bundle since
+REM most of the size is already-compressed wheels. mx=3 -ms=off is much faster
+REM for a few % more on-disk size.
+"%SZ%" a -t7z -mx=3 -ms=off -mmt=on -v1900m "%OUT_BASE%.7z" "%BUNDLE%\*" -r
 if errorlevel 1 (
   echo [ERROR] 7z compression failed.
   exit /b 1
