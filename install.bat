@@ -6,6 +6,18 @@ echo ============================================================
 echo  midi-forge installer
 echo ============================================================
 echo.
+echo This will:
+echo   1. Find a Python 3.10 - 3.13 install
+echo   2. Create a local venv ^(.\venv\^)
+echo   3. Install PyTorch 2.11 + CUDA 12.8 ^(~3 GB^)
+echo   4. Install the other Python packages
+echo   5. Clone MSST
+echo   6. Download BS-Rofo model + FFmpeg DLLs ^(~900 MB^)
+echo   7. Verify the install
+echo.
+echo Needs ~10 GB free disk. ~10 minutes on a good connection.
+echo Safe to re-run if anything fails - everything resumes / skips done work.
+echo.
 
 REM ---- 1. Python check (any of 3.10 - 3.13) ----
 set "PYEXE="
@@ -30,71 +42,143 @@ if "!PYEXE!"=="" (
   exit /b 1
 )
 
-echo [1/6] Found Python: !PYEXE!
+echo [1/7] Found Python: !PYEXE!
 !PYEXE! --version
 
-REM ---- 2. venv ----
-if not exist "venv\Scripts\python.exe" (
-  echo [2/6] Creating virtual environment...
-  %PYEXE% -m venv venv
-  if errorlevel 1 ( echo venv creation failed & pause & exit /b 1 )
+REM ---- 2. venv (probe; rebuild if broken) ----
+set "VENV_OK="
+if exist "venv\Scripts\python.exe" (
+  venv\Scripts\python.exe -c "import sys, venv" >nul 2>&1
+  if not errorlevel 1 set "VENV_OK=1"
+)
+if not defined VENV_OK (
+  if exist "venv" (
+    echo [2/7] Removing broken/partial venv...
+    rmdir /s /q venv 2>nul
+    if exist "venv" (
+      echo [ERROR] Could not delete .\venv\ - close any program using it ^(e.g. PianoExtractor^) and re-run.
+      pause
+      exit /b 1
+    )
+  )
+  echo [2/7] Creating virtual environment...
+  !PYEXE! -m venv venv
+  if errorlevel 1 (
+    echo [ERROR] venv creation failed. The selected Python may be corrupt.
+    echo Try installing 3.12 from https://www.python.org/downloads/ and re-run.
+    pause
+    exit /b 1
+  )
 ) else (
-  echo [2/6] venv already exists, reusing.
+  echo [2/7] venv already exists and works, reusing.
 )
 
 set "VPY=%~dp0venv\Scripts\python.exe"
 set "VPIP=%~dp0venv\Scripts\pip.exe"
+set "PIPFLAGS=--retries 5 --timeout 60 --disable-pip-version-check"
 
-"%VPIP%" install --upgrade pip wheel setuptools >nul
+echo       Upgrading pip / wheel / setuptools...
+"%VPIP%" install %PIPFLAGS% --upgrade pip wheel setuptools 1>nul
+if errorlevel 1 (
+  echo [ERROR] Could not upgrade pip ^(check internet, then re-run^).
+  pause
+  exit /b 1
+)
 
 REM ---- 3. PyTorch (CUDA 12.8) ----
-echo [3/6] Installing PyTorch 2.11 + CUDA 12.8 (~3GB, takes a few minutes)...
-"%VPIP%" install --index-url https://download.pytorch.org/whl/cu128 ^
+echo.
+echo [3/7] Installing PyTorch 2.11 + CUDA 12.8 ^(~3 GB, takes a few minutes^)...
+"%VPIP%" install %PIPFLAGS% --index-url https://download.pytorch.org/whl/cu128 ^
   torch==2.11.0 torchaudio==2.11.0 torchvision==0.26.0
-if errorlevel 1 ( echo torch install failed & pause & exit /b 1 )
+if errorlevel 1 (
+  echo [ERROR] PyTorch install failed.
+  echo Re-run install.bat - pip caches partial downloads so it will pick up where it stopped.
+  pause
+  exit /b 1
+)
 REM torchcodec ships Windows wheels only on default PyPI, not the cu128 index.
-"%VPIP%" install torchcodec==0.11.1
-if errorlevel 1 ( echo torchcodec install failed & pause & exit /b 1 )
+"%VPIP%" install %PIPFLAGS% torchcodec==0.11.1
+if errorlevel 1 (
+  echo [ERROR] torchcodec install failed. Re-run install.bat.
+  pause
+  exit /b 1
+)
 
 REM ---- 4. Other Python deps ----
-echo [4/6] Installing other Python packages...
-"%VPIP%" install -r requirements.txt
-if errorlevel 1 ( echo pip install failed & pause & exit /b 1 )
+echo.
+echo [4/7] Installing other Python packages...
+"%VPIP%" install %PIPFLAGS% -r requirements.txt
+if errorlevel 1 (
+  echo [ERROR] pip install -r requirements.txt failed. Re-run install.bat.
+  pause
+  exit /b 1
+)
 
-REM basic-pitch has a build issue on Python 3.13 numpy - install without its deps
-"%VPIP%" install --no-deps basic-pitch==0.4.0
-"%VPIP%" install onnxruntime
+REM basic-pitch has a numpy build issue on 3.13 - skip its declared deps (we already have them)
+"%VPIP%" install %PIPFLAGS% --no-deps basic-pitch==0.4.0
+if errorlevel 1 (
+  echo [ERROR] basic-pitch install failed.
+  pause
+  exit /b 1
+)
+"%VPIP%" install %PIPFLAGS% onnxruntime
+if errorlevel 1 (
+  echo [ERROR] onnxruntime install failed.
+  pause
+  exit /b 1
+)
 
 REM ---- 5. MSST source ----
 if not exist "msst\inference.py" (
-  echo [5/6] Cloning MSST framework...
+  echo.
+  echo [5/7] Cloning MSST framework...
   where git >nul 2>&1
   if errorlevel 1 (
-    echo [ERROR] git is not installed. Install from https://git-scm.com/
+    echo [ERROR] git is not installed. Install from https://git-scm.com/ then re-run.
     pause
     exit /b 1
   )
+  if exist "msst" rmdir /s /q msst 2>nul
   git clone --depth 1 https://github.com/ZFTurbo/Music-Source-Separation-Training.git msst
-  if errorlevel 1 ( echo MSST clone failed & pause & exit /b 1 )
+  if errorlevel 1 (
+    echo [ERROR] MSST clone failed.
+    echo Likely causes: no internet, github.com blocked ^(try a VPN^), antivirus interference.
+    pause
+    exit /b 1
+  )
 ) else (
-  echo [5/6] MSST already present, skipping.
+  echo [5/7] MSST already present, skipping.
 )
 
 REM ---- 6. Model + FFmpeg downloads ----
-echo [6/6] Downloading BS-Rofo-SW-Fixed model and FFmpeg DLLs (~900MB)...
+echo.
+echo [6/7] Downloading BS-Rofo-SW-Fixed model and FFmpeg DLLs ^(~900 MB^)...
 "%VPY%" download_assets.py
-if errorlevel 1 ( echo asset download failed & pause & exit /b 1 )
+if errorlevel 1 (
+  echo [ERROR] asset download failed. Re-run install.bat - downloads resume from where they stopped.
+  pause
+  exit /b 1
+)
+
+REM ---- 7. Verify install ----
+echo.
+echo [7/7] Verifying install...
+"%VPY%" verify_install.py
+set "VERIFY_RC=!errorlevel!"
 
 echo.
 echo ============================================================
-echo  Verifying CUDA...
+if "!VERIFY_RC!"=="0" (
+  echo  Install complete!
+) else (
+  echo  Install finished with warnings - see messages above.
+)
 echo ============================================================
-"%VPY%" -c "import torch; ok = torch.cuda.is_available(); print('CUDA available:', ok); print('GPU:', torch.cuda.get_device_name(0) if ok else 'CPU only - things will be very slow')"
-
 echo.
-echo ============================================================
-echo  Install complete!
-echo  Double-click PianoExtractor.bat to launch the GUI,
-echo  or drag a song onto SongToMidi.bat.
-echo ============================================================
+echo  Launch the GUI:    double-click PianoExtractor.bat
+echo  Drag-and-drop:     drop a song onto SongToMidi.bat
+echo  CLI piano stem:    drop onto Transcribe.bat
+echo  CLI any stem:      drop onto StemToMidi.bat
+echo.
 pause
+exit /b !VERIFY_RC!

@@ -1,8 +1,9 @@
 """Download BS-Rofo-SW-Fixed model + FFmpeg shared DLLs into the repo folder.
-Run by install.bat after Python deps are installed."""
-import io
-import shutil
+Resumes interrupted transfers, retries on transient failures, sets a UA + timeout."""
+import socket
 import sys
+import time
+import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -16,62 +17,126 @@ YAML_URL = "https://huggingface.co/jarredou/BS-ROFO-SW-Fixed/resolve/main/BS-Rof
 FFMPEG_DIR = ROOT / "ffmpeg"
 FFMPEG_URL = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl-shared.zip"
 
+USER_AGENT = "midi-forge-installer/1.0 (+https://github.com/StarsationX/midi-forge)"
+READ_TIMEOUT = 30
+MAX_ATTEMPTS = 4
 
-def _download(url: str, dest: Path, label: str) -> None:
-    if dest.exists() and dest.stat().st_size > 0:
-        print(f"  [skip] {label} already present ({dest.stat().st_size // (1024*1024)} MB)")
-        return
+
+def _human(n: int | float) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024:
+            return f"{n:6.1f} {unit}"
+        n /= 1024
+    return f"{n:6.1f} TB"
+
+
+def _head_size(url: str) -> int | None:
+    try:
+        req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            n = r.headers.get("Content-Length")
+            return int(n) if n else None
+    except Exception:
+        return None
+
+
+def _fetch(url: str, dest: Path, label: str) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
-    print(f"  [get ] {label}")
-    print(f"         {url}")
     tmp = dest.with_suffix(dest.suffix + ".part")
-    with urllib.request.urlopen(url) as r, open(tmp, "wb") as f:
-        total = int(r.headers.get("Content-Length", "0"))
-        read = 0
-        block = 1024 * 256
-        last_pct = -5
-        while True:
-            chunk = r.read(block)
-            if not chunk:
-                break
-            f.write(chunk)
-            read += len(chunk)
-            if total > 0:
-                pct = int(read * 100 / total)
-                if pct - last_pct >= 5:
-                    print(f"         {pct:3d}%  ({read // (1024*1024)} / {total // (1024*1024)} MB)")
-                    last_pct = pct
-    tmp.replace(dest)
-    print(f"         done ({dest.stat().st_size // (1024*1024)} MB)")
+
+    if dest.exists() and dest.stat().st_size > 0:
+        remote = _head_size(url)
+        local = dest.stat().st_size
+        if remote is None or remote == local:
+            print(f"  [skip ] {label} ({_human(local)} already present)")
+            return
+        print(f"  [stale] {label}: local {_human(local)} vs remote {_human(remote)} - re-downloading")
+        dest.unlink()
+
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        already = tmp.stat().st_size if tmp.exists() else 0
+        headers = {"User-Agent": USER_AGENT}
+        if already > 0:
+            headers["Range"] = f"bytes={already}-"
+            print(f"  [retry] {label}: resuming from {_human(already)} (attempt {attempt}/{MAX_ATTEMPTS})")
+        else:
+            print(f"  [get  ] {label} (attempt {attempt}/{MAX_ATTEMPTS})")
+            print(f"          {url}")
+
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=READ_TIMEOUT) as r:
+                # 206 = partial-content; 200 = full (server ignored Range)
+                if already > 0 and r.status != 206:
+                    already = 0
+                    mode = "wb"
+                else:
+                    mode = "ab" if already > 0 else "wb"
+
+                remaining = int(r.headers.get("Content-Length", "0"))
+                total = already + remaining if remaining else None
+                read = already
+                last_pct = -5
+                with open(tmp, mode) as f:
+                    while True:
+                        chunk = r.read(1024 * 256)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        read += len(chunk)
+                        if total:
+                            pct = int(read * 100 / total)
+                            if pct - last_pct >= 5:
+                                print(f"          {pct:3d}%  {_human(read)} / {_human(total)}")
+                                last_pct = pct
+
+            tmp.replace(dest)
+            print(f"          done ({_human(dest.stat().st_size)})")
+            return
+
+        except (urllib.error.URLError, socket.timeout, ConnectionError, OSError, TimeoutError) as e:
+            err = f"{type(e).__name__}: {e}"
+            print(f"          [error] {err}")
+            if attempt < MAX_ATTEMPTS:
+                wait = 2 ** attempt
+                print(f"          retrying in {wait}s...")
+                time.sleep(wait)
+            else:
+                raise RuntimeError(f"{label} failed after {MAX_ATTEMPTS} attempts: {err}")
 
 
 def fetch_model() -> None:
     print("Model: BS-Rofo-SW-Fixed (SOTA 6-stem piano separator)")
-    _download(CKPT_URL, MODEL_DIR / "BS-Rofo-SW-Fixed.ckpt", "BS-Rofo-SW-Fixed.ckpt")
-    _download(YAML_URL, MODEL_DIR / "BS-Rofo-SW-Fixed.yaml", "BS-Rofo-SW-Fixed.yaml")
+    _fetch(YAML_URL, MODEL_DIR / "BS-Rofo-SW-Fixed.yaml", "BS-Rofo-SW-Fixed.yaml")
+    _fetch(CKPT_URL, MODEL_DIR / "BS-Rofo-SW-Fixed.ckpt", "BS-Rofo-SW-Fixed.ckpt")
 
 
 def fetch_ffmpeg() -> None:
     print("\nFFmpeg shared DLLs (BtbN build):")
     target = FFMPEG_DIR / "ffmpeg-master-latest-win64-lgpl-shared"
     if (target / "bin" / "ffmpeg.exe").exists():
-        print(f"  [skip] FFmpeg already extracted")
+        print("  [skip ] FFmpeg already extracted")
         return
     zip_path = FFMPEG_DIR / "ffmpeg.zip"
-    _download(FFMPEG_URL, zip_path, "ffmpeg-master-latest-win64-lgpl-shared.zip")
+    _fetch(FFMPEG_URL, zip_path, "ffmpeg-master-latest-win64-lgpl-shared.zip")
     print(f"  [unzip] -> {FFMPEG_DIR}")
-    with zipfile.ZipFile(zip_path) as z:
-        z.extractall(FFMPEG_DIR)
+    try:
+        with zipfile.ZipFile(zip_path) as z:
+            z.extractall(FFMPEG_DIR)
+    except zipfile.BadZipFile as e:
+        zip_path.unlink(missing_ok=True)
+        raise RuntimeError(f"FFmpeg zip is corrupt ({e}); deleted, please re-run install.bat") from e
     zip_path.unlink()
-    print(f"  done")
+    print("          done")
 
 
 def main() -> int:
+    socket.setdefaulttimeout(READ_TIMEOUT)
     try:
         fetch_model()
         fetch_ffmpeg()
     except Exception as e:
-        print(f"\n[ERROR] {e}")
+        print(f"\n[ERROR] {type(e).__name__}: {e}")
         return 1
     print("\nAll assets ready.")
     return 0

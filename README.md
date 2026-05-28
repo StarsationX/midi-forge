@@ -67,6 +67,18 @@ MIDI is just notes &mdash; how it sounds depends on your synth. Windows Media Pl
 1. Install [CoolSoft VirtualMIDISynth](https://coolsoft.altervista.org/en/virtualmidisynth) + a piano soundfont (e.g. [Salamander Grand Piano](https://freepats.zenvoid.org/Piano/acoustic-grand-piano.html)). All MIDI playback on Windows then uses your soundfont. Once-and-done.
 2. Open the `.mid` in a DAW (Reaper / FL / Ableton) with a piano VST.
 
+## Troubleshooting
+
+If anything breaks after install:
+
+```cmd
+venv\Scripts\python.exe verify_install.py
+```
+
+That runs the same smoke test the installer uses at the end &mdash; reports any missing packages, missing assets, or CUDA not detected.
+
+If something downloaded incomplete or is corrupt, just re-run `install.bat` &mdash; it resumes interrupted downloads and skips work that's already done.
+
 ## Credits
 
 - **[BS-Rofo-SW-Fixed](https://huggingface.co/jarredou/BS-ROFO-SW-Fixed)** by jarredou &mdash; the 6-stem separator
