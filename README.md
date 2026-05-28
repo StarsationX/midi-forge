@@ -9,7 +9,7 @@ The pipeline isolates the piano from a full mix with **BS-Rofo-SW-Fixed** (SOTA 
 ## What you need
 
 - **Windows 10/11**
-- **Python 3.13** &mdash; install from [python.org](https://www.python.org/downloads/), tick "Add to PATH"
+- **Python 3.10, 3.11, 3.12, or 3.13** &mdash; install from [python.org](https://www.python.org/downloads/), tick "Add Python to PATH". 3.12 is the safest pick.
 - **Git** &mdash; install from [git-scm.com](https://git-scm.com/)
 - **NVIDIA GPU** &mdash; any RTX 20/30/40/50-series with up-to-date drivers (CPU works but is ~30x slower)
 - ~10 GB free disk (mostly PyTorch + CUDA runtime)

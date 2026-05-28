@@ -7,23 +7,31 @@ echo  midi-forge installer
 echo ============================================================
 echo.
 
-REM ---- 1. Python check ----
-where py >nul 2>&1
-if errorlevel 1 (
-  where python >nul 2>&1
-  if errorlevel 1 (
-    echo [ERROR] Python is not installed.
-    echo Install Python 3.13 from https://www.python.org/downloads/  ^(check "Add to PATH"^)
-    pause
-    exit /b 1
+REM ---- 1. Python check (any of 3.10 - 3.13) ----
+set "PYEXE="
+for %%V in (3.13 3.12 3.11 3.10) do (
+  if "!PYEXE!"=="" (
+    py -%%V --version >nul 2>&1
+    if not errorlevel 1 set "PYEXE=py -%%V"
   )
-  set "PYEXE=python"
-) else (
-  set "PYEXE=py -3.13"
+)
+if "!PYEXE!"=="" (
+  python --version 2>nul | findstr /R "^Python 3\.1[0123]" >nul
+  if not errorlevel 1 set "PYEXE=python"
+)
+if "!PYEXE!"=="" (
+  echo [ERROR] No suitable Python found. midi-forge needs Python 3.10 - 3.13.
+  echo.
+  echo Install one of:
+  echo   - https://www.python.org/downloads/   ^(pick 3.12, tick "Add Python to PATH"^)
+  echo   - winget install --id Python.Python.3.12
+  echo Then close this window and re-run install.bat.
+  pause
+  exit /b 1
 )
 
-echo [1/6] Found Python: %PYEXE%
-%PYEXE% --version
+echo [1/6] Found Python: !PYEXE!
+!PYEXE! --version
 
 REM ---- 2. venv ----
 if not exist "venv\Scripts\python.exe" (
