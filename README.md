@@ -17,7 +17,7 @@ The pipeline isolates the piano from a full mix with **BS-Rofo-SW-Fixed** (SOTA 
 ## Install
 
 ```cmd
-git clone https://github.com/YOUR-USER/midi-forge.git
+git clone https://github.com/StarsationX/midi-forge.git
 cd midi-forge
 install.bat
 ```
