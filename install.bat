@@ -50,8 +50,11 @@ set "VPIP=%~dp0venv\Scripts\pip.exe"
 REM ---- 3. PyTorch (CUDA 12.8) ----
 echo [3/6] Installing PyTorch 2.11 + CUDA 12.8 (~3GB, takes a few minutes)...
 "%VPIP%" install --index-url https://download.pytorch.org/whl/cu128 ^
-  torch==2.11.0 torchaudio==2.11.0 torchvision==0.26.0 torchcodec==0.11.1
+  torch==2.11.0 torchaudio==2.11.0 torchvision==0.26.0
 if errorlevel 1 ( echo torch install failed & pause & exit /b 1 )
+REM torchcodec ships Windows wheels only on default PyPI, not the cu128 index.
+"%VPIP%" install torchcodec==0.11.1
+if errorlevel 1 ( echo torchcodec install failed & pause & exit /b 1 )
 
 REM ---- 4. Other Python deps ----
 echo [4/6] Installing other Python packages...
