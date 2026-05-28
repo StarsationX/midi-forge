@@ -4,6 +4,10 @@ msst/
 ffmpeg/
 models/
 
+# Inno Setup output
+dist/
+*.log
+
 # User work files
 stems/
 *.mid
