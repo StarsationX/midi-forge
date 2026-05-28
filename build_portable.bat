@@ -17,37 +17,45 @@ echo ============================================================
 echo Output: %BUNDLE%
 echo.
 
-REM ---- 0. Clean and stage ----
-if exist "%BUNDLE%" (
-  echo [0/9] Removing old bundle...
-  rmdir /s /q "%BUNDLE%"
+REM ---- 0. Stage (reuse existing bundle if Python is intact, for fast iteration) ----
+if not exist "%BUNDLE%\python\python.exe" (
+  if exist "%BUNDLE%" (
+    echo [0/9] Removing broken partial bundle...
+    rmdir /s /q "%BUNDLE%"
+  )
+  mkdir "%BUNDLE%\python"
+
+  REM ---- 1. Download embeddable Python ----
+  echo [1/9] Downloading Python %PYVER% embeddable distribution...
+  curl --fail -L -o "%BUNDLE%\python-embed.zip" "%PYEMBED_URL%"
+  if errorlevel 1 ( echo [ERROR] embeddable Python download failed & exit /b 1 )
+  tar -xf "%BUNDLE%\python-embed.zip" -C "%BUNDLE%\python"
+  if errorlevel 1 ( echo [ERROR] extracting embeddable Python failed & exit /b 1 )
+  del "%BUNDLE%\python-embed.zip"
+
+  REM ---- 2. Enable site-packages in pthfile ----
+  echo [2/9] Configuring embedded Python (enable site-packages)...
+  for %%F in ("%BUNDLE%\python\python*._pth") do (
+    powershell -NoProfile -Command "(Get-Content '%%F') -replace '#import site', 'import site' | Set-Content '%%F'"
+  )
+) else (
+  echo [0-2/9] Reusing existing bundle Python at %BUNDLE%\python
 )
-mkdir "%BUNDLE%\python"
 
-REM ---- 1. Download embeddable Python ----
-echo [1/9] Downloading Python %PYVER% embeddable distribution...
-curl --fail -L -o "%BUNDLE%\python-embed.zip" "%PYEMBED_URL%"
-if errorlevel 1 ( echo [ERROR] embeddable Python download failed & exit /b 1 )
-tar -xf "%BUNDLE%\python-embed.zip" -C "%BUNDLE%\python"
-if errorlevel 1 ( echo [ERROR] extracting embeddable Python failed & exit /b 1 )
-del "%BUNDLE%\python-embed.zip"
-
-REM ---- 2. Enable site-packages in pthfile ----
-echo [2/9] Configuring embedded Python (enable site-packages)...
-for %%F in ("%BUNDLE%\python\python*._pth") do (
-  powershell -NoProfile -Command "(Get-Content '%%F') -replace '#import site', 'import site' | Set-Content '%%F'"
+REM ---- 3. Bootstrap pip (skip if already installed) ----
+if not exist "%BUNDLE%\python\Scripts\pip.exe" (
+  echo [3/9] Bootstrapping pip...
+  curl --fail -L -o "%BUNDLE%\python\get-pip.py" "%GETPIP_URL%"
+  if errorlevel 1 ( echo [ERROR] get-pip.py download failed & exit /b 1 )
+  "%BUNDLE%\python\python.exe" "%BUNDLE%\python\get-pip.py" --no-warn-script-location
+  if errorlevel 1 ( echo [ERROR] pip bootstrap failed & exit /b 1 )
+  del "%BUNDLE%\python\get-pip.py"
+) else (
+  echo [3/9] pip already installed, skipping.
 )
-
-REM ---- 3. Bootstrap pip ----
-echo [3/9] Bootstrapping pip...
-curl --fail -L -o "%BUNDLE%\python\get-pip.py" "%GETPIP_URL%"
-if errorlevel 1 ( echo [ERROR] get-pip.py download failed & exit /b 1 )
-"%BUNDLE%\python\python.exe" "%BUNDLE%\python\get-pip.py" --no-warn-script-location
-if errorlevel 1 ( echo [ERROR] pip bootstrap failed & exit /b 1 )
-del "%BUNDLE%\python\get-pip.py"
 
 set "BPY=%BUNDLE%\python\python.exe"
-set "PIPFLAGS=--retries 5 --timeout 60 --disable-pip-version-check --no-warn-script-location"
+set "PIPFLAGS=--retries 5 --timeout 60 --disable-pip-version-check --no-warn-script-location --find-links wheelhouse"
 
 REM ---- 4. PyTorch (CUDA 12.8) ----
 echo [4/9] Installing PyTorch 2.11 + CUDA 12.8 (~3 GB, several minutes)...

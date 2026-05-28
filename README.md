@@ -16,13 +16,21 @@ The pipeline isolates the piano from a full mix with **BS-Rofo-SW-Fixed** (SOTA 
 
 ## Install
 
+Three options. Pick whichever fits.
+
+**Option 1 &mdash; Setup wizard** (recommended for most people)
+Grab `midi-forge-setup-X.Y.Z.exe` from [Releases](https://github.com/StarsationX/midi-forge/releases). Double-click, follow the wizard, and on the final page tick "Run midi-forge installer". Files go to `%LOCALAPPDATA%\midi-forge`, no admin needed. Installer downloads Python deps + model on first run (~10 min, ~10 GB on disk).
+
+**Option 2 &mdash; Portable bundle** (offline, no Python required)
+Grab `midi-forge-portable-X.Y.Z.7z.001`, `.002`, ... from [Releases](https://github.com/StarsationX/midi-forge/releases). Select all parts, right-click &rarr; 7-Zip &rarr; Extract. You get a folder with everything bundled in &mdash; no Python install, no internet needed at runtime. Just run `PianoExtractor.bat`. Bigger download (~5 GB), bigger footprint.
+
+**Option 3 &mdash; From source** (for developers / customizing the pipeline)
 ```cmd
 git clone https://github.com/StarsationX/midi-forge.git
 cd midi-forge
 install.bat
 ```
-
-The installer creates a local `venv/`, installs PyTorch 2.11 + CUDA 12.8, downloads the BS-Rofo model (~700 MB) from HuggingFace, clones MSST, and pulls FFmpeg shared DLLs. First run is ~10 minutes on a reasonable connection.
+The installer creates a local `venv/`, installs PyTorch 2.11 + CUDA 12.8, downloads the BS-Rofo model from HuggingFace, clones MSST, and pulls FFmpeg shared DLLs. First run is ~10 minutes.
 
 ## Use
 
