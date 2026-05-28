@@ -3,10 +3,10 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QProcess, QProcessEnvironment, Qt, QUrl
-from PySide6.QtGui import QDesktopServices, QDragEnterEvent, QDropEvent, QFont, QIcon, QPalette, QColor
+from PySide6.QtGui import QDesktopServices, QDragEnterEvent, QDropEvent, QFont, QPalette, QColor
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame,
-    QHBoxLayout, QLabel, QMainWindow, QMessageBox, QProgressBar, QPushButton,
+    QHBoxLayout, QLabel, QMainWindow, QProgressBar, QPushButton,
     QSpinBox, QDoubleSpinBox, QTextEdit, QVBoxLayout, QWidget,
 )
 
@@ -172,10 +172,16 @@ class App(QMainWindow):
         self.min_note = QDoubleSpinBox(); self.min_note.setRange(0.0, 1.0); self.min_note.setSingleStep(0.01); self.min_note.setDecimals(3); self.min_note.setValue(0.05)
         self.pitch_lo = QSpinBox(); self.pitch_lo.setRange(0, 127); self.pitch_lo.setValue(21)
         self.pitch_hi = QSpinBox(); self.pitch_hi.setRange(0, 127); self.pitch_hi.setValue(108)
+        self.velocity_gamma = QDoubleSpinBox(); self.velocity_gamma.setRange(0.5, 1.5); self.velocity_gamma.setSingleStep(0.05); self.velocity_gamma.setDecimals(2); self.velocity_gamma.setValue(0.85)
+        self.target_rms = QDoubleSpinBox(); self.target_rms.setRange(-40.0, 0.0); self.target_rms.setSingleStep(1.0); self.target_rms.setDecimals(1); self.target_rms.setValue(-20.0)
+        self.loudness_norm = QCheckBox("normalize loudness before Transkun"); self.loudness_norm.setChecked(True)
         adv_l.addRow("MIN_VELOCITY (drop quieter notes)", self.min_vel)
         adv_l.addRow("MIN_NOTE_SEC (drop shorter notes)", self.min_note)
         adv_l.addRow("PIANO_MIN_PITCH (lowest kept pitch)", self.pitch_lo)
         adv_l.addRow("PIANO_MAX_PITCH (highest kept pitch)", self.pitch_hi)
+        adv_l.addRow("VELOCITY_GAMMA (<1 expands dynamics)", self.velocity_gamma)
+        adv_l.addRow("TARGET_RMS_DB (normalize target)", self.target_rms)
+        adv_l.addRow("LOUDNESS_NORM", self.loudness_norm)
         self.adv.setVisible(False)
         card_l.addWidget(self.adv)
         adv_btn.toggled.connect(lambda v: (self.adv.setVisible(v), adv_btn.setText("Advanced ▴" if v else "Advanced ▾")))
@@ -206,16 +212,18 @@ class App(QMainWindow):
         self.result_row = QHBoxLayout()
         self.open_folder_btn = QPushButton("Open folder"); self.open_folder_btn.setEnabled(False)
         self.open_folder_btn.clicked.connect(self._open_folder)
+        self.open_stems_btn = QPushButton("Open stems folder"); self.open_stems_btn.setEnabled(False)
+        self.open_stems_btn.clicked.connect(self._open_stems)
         self.open_midi_btn = QPushButton("Open MIDI"); self.open_midi_btn.setEnabled(False)
         self.open_midi_btn.clicked.connect(self._open_midi)
-        self.result_row.addWidget(self.open_folder_btn); self.result_row.addWidget(self.open_midi_btn); self.result_row.addStretch()
+        self.result_row.addWidget(self.open_folder_btn); self.result_row.addWidget(self.open_stems_btn); self.result_row.addWidget(self.open_midi_btn); self.result_row.addStretch()
         root.addLayout(self.result_row)
 
     def _on_file(self, p: Path):
         self.audio_path = p
         self.file_label.setText(f"Selected:  {p.name}    ({p.parent})")
         self.start_btn.setEnabled(True)
-        self.open_folder_btn.setEnabled(False); self.open_midi_btn.setEnabled(False)
+        self.open_folder_btn.setEnabled(False); self.open_stems_btn.setEnabled(False); self.open_midi_btn.setEnabled(False)
         self.midi_path = None
         name = p.stem.lower()
         stem_hints = ("piano", "vocals", "guitar", "drums", "bass", "other", "stem")
@@ -230,6 +238,9 @@ class App(QMainWindow):
         env["MIN_NOTE_SEC"] = str(self.min_note.value())
         env["PIANO_MIN_PITCH"] = str(self.pitch_lo.value())
         env["PIANO_MAX_PITCH"] = str(self.pitch_hi.value())
+        env["VELOCITY_GAMMA"] = str(self.velocity_gamma.value())
+        env["TARGET_RMS_DB"] = str(self.target_rms.value())
+        env["LOUDNESS_NORM"] = "1" if self.loudness_norm.isChecked() else "0"
         env["PYTHONIOENCODING"] = "utf-8"
         env["PYTHONUNBUFFERED"] = "1"
         return env
@@ -239,7 +250,7 @@ class App(QMainWindow):
             return
         self.log.clear()
         self.start_btn.setEnabled(False); self.cancel_btn.setEnabled(True)
-        self.open_folder_btn.setEnabled(False); self.open_midi_btn.setEnabled(False)
+        self.open_folder_btn.setEnabled(False); self.open_stems_btn.setEnabled(False); self.open_midi_btn.setEnabled(False)
         self.bar.setVisible(True); self.bar.setRange(0, 0)
         self.stage.setText("Starting…")
 
@@ -267,6 +278,8 @@ class App(QMainWindow):
             low = line.lower()
             if "[1/3]" in line or "separating" in low:
                 self.stage.setText("Separating piano stem (BS-Rofo-SW)…")
+            elif "normalizing" in low:
+                self.stage.setText("Normalizing loudness…")
             elif "[2/3]" in line or "transcribing" in low:
                 self.stage.setText("Transcribing to MIDI (Transkun)…")
             elif "[3/3]" in line or "cleaning" in low:
@@ -286,6 +299,10 @@ class App(QMainWindow):
             if self.midi_path.exists():
                 self.open_folder_btn.setEnabled(True)
                 self.open_midi_btn.setEnabled(True)
+                # Stems folder only exists when separation ran (song_to_midi.py path)
+                stems = self.audio_path.parent / "stems" / self.audio_path.stem
+                if stems.exists():
+                    self.open_stems_btn.setEnabled(True)
                 self.stage.setText(f"Done: {self.midi_path.name}")
 
     def _on_error(self, _):
@@ -301,6 +318,12 @@ class App(QMainWindow):
     def _open_folder(self):
         if self.midi_path:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.midi_path.parent)))
+
+    def _open_stems(self):
+        if self.audio_path:
+            stems = self.audio_path.parent / "stems" / self.audio_path.stem
+            if stems.exists():
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(stems)))
 
     def _open_midi(self):
         if self.midi_path:

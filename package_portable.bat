@@ -22,8 +22,11 @@ if not exist "%SZ%" (
 )
 
 echo Bundle size:
-"%SZ%" h -scrcSHA256 "%BUNDLE%" >nul 2>&1
-for /f "tokens=*" %%i in ('powershell -NoProfile -Command "'{0:N1} GB' -f ((Get-ChildItem '%BUNDLE%' -Recurse ^| Measure-Object -Property Length -Sum).Sum / 1GB)"') do echo   %%i
+REM Use a temp script file to dodge nested-quote + escaping pain across cmd/powershell.
+> "%TEMP%\size.ps1" echo $b = (Get-ChildItem -LiteralPath '%BUNDLE%' -Recurse -File ^| Measure-Object -Property Length -Sum).Sum / 1GB
+>> "%TEMP%\size.ps1" echo Write-Host ("  {0:N2} GB" -f $b)
+powershell -NoProfile -ExecutionPolicy Bypass -File "%TEMP%\size.ps1"
+del "%TEMP%\size.ps1" 2>nul
 
 echo.
 echo Removing any old archive parts...
