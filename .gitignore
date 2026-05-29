@@ -10,6 +10,7 @@ dist/
 
 # User work files
 stems/
+downloads/
 *.mid
 *.midi
 *.mp3

@@ -42,6 +42,12 @@ The installer creates a local `venv/`, installs PyTorch 2.11 + CUDA 12.8, downlo
 | Drag a piano stem onto **`Transcribe.bat`** | Skip separation, go straight to Transkun |
 | Drag any stem onto **`StemToMidi.bat`** | General-purpose transcription via basic-pitch (vocals, guitar, etc.) |
 
+### From a YouTube link
+
+In the GUI, paste a YouTube (or other site) URL into the **"…or paste a link"** box and hit **Download**. The audio is saved as an MP3 in the `downloads/` folder and auto-loaded as the input &mdash; then just hit **Start** to transcribe it. Powered by [yt-dlp](https://github.com/yt-dlp/yt-dlp) + the bundled FFmpeg.
+
+> Some videos (age-restricted, or certain newer uploads) need a JavaScript runtime for YouTube extraction. If a download fails with a JS/format hint, install [Deno](https://deno.com) and reopen midi-forge.
+
 Output goes next to the input file:
 ```
 mysong.mp3        <- input

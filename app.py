@@ -6,7 +6,7 @@ from PySide6.QtCore import QProcess, QProcessEnvironment, Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QDragEnterEvent, QDropEvent, QFont, QPalette, QColor
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame,
-    QHBoxLayout, QLabel, QMainWindow, QProgressBar, QPushButton,
+    QHBoxLayout, QLabel, QLineEdit, QMainWindow, QProgressBar, QPushButton,
     QSpinBox, QDoubleSpinBox, QTextEdit, QVBoxLayout, QWidget,
 )
 
@@ -17,6 +17,8 @@ PY = _exe.with_name("python.exe") if _exe.name.lower() == "pythonw.exe" else _ex
 SONG_SCRIPT = ROOT / "song_to_midi.py"
 STEM_SCRIPT_PIANO = ROOT / "transcribe.py"
 STEM_SCRIPT_GENERAL = ROOT / "stem_to_midi.py"
+YT_SCRIPT = ROOT / "yt_download.py"
+DOWNLOADS_DIR = ROOT / "downloads"
 
 AUDIO_EXTS = {".mp3", ".wav", ".flac", ".m4a", ".ogg", ".aac", ".wma", ".aiff"}
 
@@ -87,6 +89,8 @@ class App(QMainWindow):
         self.audio_path: Path | None = None
         self.midi_path: Path | None = None
         self.proc: QProcess | None = None
+        self.mode: str = "transcribe"   # or "download"
+        self._downloaded: Path | None = None
         self._build_ui()
         self._apply_dark_theme()
 
@@ -136,6 +140,19 @@ class App(QMainWindow):
 
         self.drop = DropZone(self._on_file)
         root.addWidget(self.drop)
+
+        # YouTube / URL row
+        url_row = QHBoxLayout()
+        url_row.addWidget(QLabel("…or paste a link:"))
+        self.url_edit = QLineEdit()
+        self.url_edit.setPlaceholderText("https://www.youtube.com/watch?v=…   (downloads audio as MP3)")
+        self.url_edit.returnPressed.connect(self._download_url)
+        url_row.addWidget(self.url_edit, 1)
+        self.download_btn = QPushButton("Download")
+        self.download_btn.clicked.connect(self._download_url)
+        url_row.addWidget(self.download_btn)
+        root.addLayout(url_row)
+
         self.file_label = QLabel("No file selected.")
         self.file_label.setStyleSheet("color: #aab0bc;")
         root.addWidget(self.file_label)
@@ -249,10 +266,40 @@ class App(QMainWindow):
         env["PYTHONNOUSERSITE"] = "1"
         return env
 
+    def _download_url(self):
+        url = self.url_edit.text().strip()
+        if not url:
+            return
+        if self.proc and self.proc.state() != QProcess.NotRunning:
+            return  # something already running
+        self.log.clear()
+        self.mode = "download"
+        self._downloaded = None
+        self.download_btn.setEnabled(False); self.url_edit.setEnabled(False)
+        self.start_btn.setEnabled(False); self.cancel_btn.setEnabled(True)
+        self.open_folder_btn.setEnabled(False); self.open_stems_btn.setEnabled(False); self.open_midi_btn.setEnabled(False)
+        self.bar.setVisible(True); self.bar.setRange(0, 0)
+        self.stage.setText("Downloading audio…")
+        self.proc = self._make_proc()
+        self.proc.start(str(PY), [str(YT_SCRIPT), url, str(DOWNLOADS_DIR)])
+
+    def _make_proc(self) -> QProcess:
+        proc = QProcess(self)
+        proc.setProcessChannelMode(QProcess.MergedChannels)
+        qenv = QProcessEnvironment()
+        for k, v in self._build_env().items():
+            qenv.insert(k, v)
+        proc.setProcessEnvironment(qenv)
+        proc.readyReadStandardOutput.connect(self._on_output)
+        proc.finished.connect(self._on_finished)
+        proc.errorOccurred.connect(self._on_error)
+        return proc
+
     def _start(self):
         if not self.audio_path:
             return
         self.log.clear()
+        self.mode = "transcribe"
         self.start_btn.setEnabled(False); self.cancel_btn.setEnabled(True)
         self.open_folder_btn.setEnabled(False); self.open_stems_btn.setEnabled(False); self.open_midi_btn.setEnabled(False)
         self.bar.setVisible(True); self.bar.setRange(0, 0)
@@ -262,15 +309,7 @@ class App(QMainWindow):
             script = STEM_SCRIPT_PIANO if self.transcriber.currentData() == "piano" else STEM_SCRIPT_GENERAL
         else:
             script = SONG_SCRIPT
-        self.proc = QProcess(self)
-        self.proc.setProcessChannelMode(QProcess.MergedChannels)
-        qenv = QProcessEnvironment()
-        for k, v in self._build_env().items():
-            qenv.insert(k, v)
-        self.proc.setProcessEnvironment(qenv)
-        self.proc.readyReadStandardOutput.connect(self._on_output)
-        self.proc.finished.connect(self._on_finished)
-        self.proc.errorOccurred.connect(self._on_error)
+        self.proc = self._make_proc()
         self.proc.start(str(PY), [str(script), str(self.audio_path)])
 
     def _on_output(self):
@@ -280,7 +319,11 @@ class App(QMainWindow):
         for line in data.splitlines():
             self.log.append(line)
             low = line.lower()
-            if "[1/3]" in line or "separating" in low:
+            if line.startswith("DOWNLOADED:"):
+                self._downloaded = Path(line.split("DOWNLOADED:", 1)[1].strip())
+            elif self.mode == "download" and "[download]" in low:
+                self.stage.setText(f"Downloading… {line.split(']', 1)[-1].strip()[:60]}")
+            elif "[1/3]" in line or "separating" in low:
                 self.stage.setText("Separating piano stem (BS-Rofo-SW)…")
             elif "normalizing" in low:
                 self.stage.setText("Normalizing loudness…")
@@ -293,7 +336,25 @@ class App(QMainWindow):
 
     def _on_finished(self, code: int, _status):
         self.bar.setVisible(False)
-        self.cancel_btn.setEnabled(False); self.start_btn.setEnabled(True)
+        self.cancel_btn.setEnabled(False)
+
+        if self.mode == "download":
+            self.download_btn.setEnabled(True); self.url_edit.setEnabled(True)
+            self.start_btn.setEnabled(self.audio_path is not None)
+            if code != 0:
+                self.stage.setText(f"Download failed (exit {code}). See log.")
+                return
+            if self._downloaded and self._downloaded.exists():
+                self.url_edit.clear()
+                self.stage.setText(f"Downloaded: {self._downloaded.name} — ready to transcribe.")
+                # Auto-load it as the input file (auto-detects stem type from name).
+                self._on_file(self._downloaded)
+            else:
+                self.stage.setText("Download finished but the MP3 could not be located. See log.")
+            return
+
+        # --- transcribe mode ---
+        self.start_btn.setEnabled(True)
         if code != 0:
             self.stage.setText(f"Failed (exit {code}).")
             return
@@ -317,7 +378,9 @@ class App(QMainWindow):
             self.proc.kill()
             self.stage.setText("Cancelled.")
             self.bar.setVisible(False)
-            self.cancel_btn.setEnabled(False); self.start_btn.setEnabled(True)
+            self.cancel_btn.setEnabled(False)
+            self.start_btn.setEnabled(self.audio_path is not None)
+            self.download_btn.setEnabled(True); self.url_edit.setEnabled(True)
 
     def _open_folder(self):
         if self.midi_path:
