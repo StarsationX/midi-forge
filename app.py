@@ -243,6 +243,10 @@ class App(QMainWindow):
         env["LOUDNESS_NORM"] = "1" if self.loudness_norm.isChecked() else "0"
         env["PYTHONIOENCODING"] = "utf-8"
         env["PYTHONUNBUFFERED"] = "1"
+        # Stop the subprocess from inheriting a user-site basic_pitch (or
+        # anything else) that may have been globally pip-installed and is
+        # masking the venv's working copy.
+        env["PYTHONNOUSERSITE"] = "1"
         return env
 
     def _start(self):

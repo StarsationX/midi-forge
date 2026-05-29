@@ -14,5 +14,6 @@ if exist "%~dp0python\python.exe" (
   pause
   exit /b 1
 )
+set PYTHONNOUSERSITE=1
 "%PY%" "%~dp0transcribe.py" "%~1"
 pause

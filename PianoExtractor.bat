@@ -1,4 +1,5 @@
 @echo off
+set PYTHONNOUSERSITE=1
 if exist "%~dp0python\pythonw.exe" (
   start "" "%~dp0python\pythonw.exe" "%~dp0app.py"
 ) else if exist "%~dp0venv\Scripts\pythonw.exe" (
