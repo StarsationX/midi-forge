@@ -2,7 +2,7 @@
 ; Compile with: "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" midi-forge.iss
 
 #define AppName "midi-forge"
-#define AppVersion "1.0.2"
+#define AppVersion "1.1.0"
 #define AppPublisher "StarsationX"
 #define AppURL "https://github.com/StarsationX/midi-forge"
 
@@ -44,6 +44,7 @@ Source: "app.py";              DestDir: "{app}"; Flags: ignoreversion
 Source: "song_to_midi.py";     DestDir: "{app}"; Flags: ignoreversion
 Source: "transcribe.py";       DestDir: "{app}"; Flags: ignoreversion
 Source: "stem_to_midi.py";     DestDir: "{app}"; Flags: ignoreversion
+Source: "yt_download.py";      DestDir: "{app}"; Flags: ignoreversion
 Source: "audio_utils.py";      DestDir: "{app}"; Flags: ignoreversion
 Source: "analyze.py";          DestDir: "{app}"; Flags: ignoreversion
 Source: "download_assets.py";  DestDir: "{app}"; Flags: ignoreversion
