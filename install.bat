@@ -74,11 +74,12 @@ if not defined VENV_OK (
 )
 
 set "VPY=%~dp0venv\Scripts\python.exe"
-set "VPIP=%~dp0venv\Scripts\pip.exe"
 set "PIPFLAGS=--retries 5 --timeout 60 --disable-pip-version-check"
 
+REM Use `python -m pip` everywhere: pip.exe can't upgrade itself on Windows
+REM (the running .exe is locked), which is why a direct pip.exe upgrade fails.
 echo       Upgrading pip / wheel / setuptools...
-"%VPIP%" install %PIPFLAGS% --upgrade pip wheel setuptools 1>nul
+"%VPY%" -m pip install %PIPFLAGS% --upgrade pip wheel setuptools 1>nul
 if errorlevel 1 (
   echo [ERROR] Could not upgrade pip ^(check internet, then re-run^).
   pause
@@ -88,7 +89,7 @@ if errorlevel 1 (
 REM ---- 3. PyTorch (CUDA 12.8) ----
 echo.
 echo [3/7] Installing PyTorch 2.11 + CUDA 12.8 ^(~3 GB, takes a few minutes^)...
-"%VPIP%" install %PIPFLAGS% --index-url https://download.pytorch.org/whl/cu128 ^
+"%VPY%" -m pip install %PIPFLAGS% --index-url https://download.pytorch.org/whl/cu128 ^
   torch==2.11.0 torchaudio==2.11.0 torchvision==0.26.0
 if errorlevel 1 (
   echo [ERROR] PyTorch install failed.
@@ -97,7 +98,7 @@ if errorlevel 1 (
   exit /b 1
 )
 REM torchcodec ships Windows wheels only on default PyPI, not the cu128 index.
-"%VPIP%" install %PIPFLAGS% torchcodec==0.11.1
+"%VPY%" -m pip install %PIPFLAGS% torchcodec==0.11.1
 if errorlevel 1 (
   echo [ERROR] torchcodec install failed. Re-run install.bat.
   pause
@@ -107,7 +108,7 @@ if errorlevel 1 (
 REM ---- 4. Other Python deps ----
 echo.
 echo [4/7] Installing other Python packages...
-"%VPIP%" install %PIPFLAGS% -r requirements.txt
+"%VPY%" -m pip install %PIPFLAGS% -r requirements.txt
 if errorlevel 1 (
   echo [ERROR] pip install -r requirements.txt failed. Re-run install.bat.
   pause
@@ -115,13 +116,13 @@ if errorlevel 1 (
 )
 
 REM basic-pitch has a numpy build issue on 3.13 - skip its declared deps (we already have them)
-"%VPIP%" install %PIPFLAGS% --no-deps basic-pitch==0.4.0
+"%VPY%" -m pip install %PIPFLAGS% --no-deps basic-pitch==0.4.0
 if errorlevel 1 (
   echo [ERROR] basic-pitch install failed.
   pause
   exit /b 1
 )
-"%VPIP%" install %PIPFLAGS% onnxruntime
+"%VPY%" -m pip install %PIPFLAGS% onnxruntime
 if errorlevel 1 (
   echo [ERROR] onnxruntime install failed.
   pause
