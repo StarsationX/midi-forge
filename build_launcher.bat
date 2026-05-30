@@ -2,6 +2,10 @@
 setlocal
 cd /d "%~dp0"
 
+REM DEPRECATED as of v1.3.0 — superseded by build_app.bat, which freezes the
+REM PySide6 app itself (in-app setup page + updater) instead of a separate
+REM tkinter launcher. Kept for reference only.
+
 REM Build the self-installing MidiForge.exe launcher with PyInstaller.
 REM Uses the dev venv's PyInstaller. The launcher carries the app scripts +
 REM wheelhouse as bundled data ("payload"); everything heavy is fetched at

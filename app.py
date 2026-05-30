@@ -1,8 +1,14 @@
 import os
+import shutil
+import subprocess
 import sys
+import threading
+import urllib.request
+import zipfile
+import json
 from pathlib import Path
 
-from PySide6.QtCore import QProcess, QProcessEnvironment, Qt, QUrl, QSize, QRectF
+from PySide6.QtCore import QProcess, QProcessEnvironment, Qt, QUrl, QSize, QRectF, QObject, Signal
 from PySide6.QtGui import (
     QDesktopServices, QDragEnterEvent, QDropEvent, QFont, QPalette, QColor,
     QPainter, QPen, QBrush, QFontMetrics,
@@ -11,18 +17,227 @@ from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame,
     QHBoxLayout, QLabel, QLineEdit, QMainWindow, QProgressBar, QPushButton,
     QSpinBox, QDoubleSpinBox, QTextEdit, QVBoxLayout, QWidget, QButtonGroup,
-    QSizePolicy, QGraphicsDropShadowEffect,
+    QSizePolicy, QStackedWidget,
 )
 
-ROOT = Path(__file__).resolve().parent
-# sys.executable here is pythonw.exe; flip to python.exe so subprocess stdout is captured.
-_exe = Path(sys.executable)
-PY = _exe.with_name("python.exe") if _exe.name.lower() == "pythonw.exe" else _exe
-SONG_SCRIPT = ROOT / "song_to_midi.py"
-STEM_SCRIPT_PIANO = ROOT / "transcribe.py"
-STEM_SCRIPT_GENERAL = ROOT / "stem_to_midi.py"
-YT_SCRIPT = ROOT / "yt_download.py"
-DOWNLOADS_DIR = ROOT / "downloads"
+APP_VERSION = "1.3.0"
+FROZEN = getattr(sys, "frozen", False)
+
+# In a frozen all-in-one build the GUI runs from PyInstaller's bundled Python,
+# but the heavy pipeline (torch/model) lives in a separate env we build into
+# %LOCALAPPDATA%\midi-forge. In dev / wizard / portable installs everything is
+# already next to this file.
+if FROZEN:
+    ENV_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "midi-forge"
+    SCRIPTS_DIR = ENV_DIR
+    PY = ENV_DIR / "python" / "python.exe"
+    PAYLOAD_DIR = Path(getattr(sys, "_MEIPASS", ".")) / "payload"
+else:
+    ENV_DIR = Path(__file__).resolve().parent
+    SCRIPTS_DIR = ENV_DIR
+    _exe = Path(sys.executable)
+    PY = _exe.with_name("python.exe") if _exe.name.lower() == "pythonw.exe" else _exe
+    PAYLOAD_DIR = None
+
+ROOT = SCRIPTS_DIR
+SONG_SCRIPT = SCRIPTS_DIR / "song_to_midi.py"
+STEM_SCRIPT_PIANO = SCRIPTS_DIR / "transcribe.py"
+STEM_SCRIPT_GENERAL = SCRIPTS_DIR / "stem_to_midi.py"
+YT_SCRIPT = SCRIPTS_DIR / "yt_download.py"
+DOWNLOADS_DIR = ENV_DIR / "downloads"
+
+GITHUB_REPO = "StarsationX/midi-forge"
+LATEST_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+
+# ---- first-run install (frozen all-in-one only) -------------------------
+PYVER = "3.13.5"
+PYEMBED_URL = f"https://www.python.org/ftp/python/{PYVER}/python-{PYVER}-embed-amd64.zip"
+GETPIP_URL = "https://bootstrap.pypa.io/get-pip.py"
+MSST_ZIP_URL = "https://github.com/ZFTurbo/Music-Source-Separation-Training/archive/refs/heads/main.zip"
+TORCH_INDEX = "https://download.pytorch.org/whl/cu128"
+READY_MARKER = ENV_DIR / ".ready"
+
+PAYLOAD_FILES = [
+    "app.py", "song_to_midi.py", "transcribe.py", "stem_to_midi.py",
+    "audio_utils.py", "analyze.py", "yt_download.py", "download_assets.py",
+    "verify_install.py", "requirements.txt", "README.md", "LICENSE",
+]
+PAYLOAD_DIRS = ["wheelhouse"]
+_NOWINDOW = 0x08000000  # CREATE_NO_WINDOW
+
+
+def env_ready() -> bool:
+    """True when the heavy pipeline env is physically installed."""
+    return ((ENV_DIR / "python" / "python.exe").exists()
+            and (ENV_DIR / "python" / "Lib" / "site-packages" / "torch").exists())
+
+
+def extract_payload():
+    """Copy the bundled scripts/wheels next to the env (frozen mode only)."""
+    if not (FROZEN and PAYLOAD_DIR and PAYLOAD_DIR.exists()):
+        return
+    ENV_DIR.mkdir(parents=True, exist_ok=True)
+    for name in PAYLOAD_FILES:
+        s = PAYLOAD_DIR / name
+        if s.exists():
+            shutil.copy2(s, ENV_DIR / name)
+    for d in PAYLOAD_DIRS:
+        s = PAYLOAD_DIR / d
+        if s.exists():
+            shutil.copytree(s, ENV_DIR / d, dirs_exist_ok=True)
+
+
+class Installer(QObject):
+    """Builds the heavy env in a background thread, reporting to the UI."""
+    log = Signal(str)
+    status = Signal(str)
+    finished = Signal(bool, str)   # ok, error-message
+
+    def __init__(self):
+        super().__init__()
+        self.py = ENV_DIR / "python" / "python.exe"
+
+    def _run(self, args):
+        self.log.emit("$ " + " ".join(str(a) for a in args))
+        proc = subprocess.Popen(
+            args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            encoding="utf-8", errors="replace", cwd=str(ENV_DIR), creationflags=_NOWINDOW,
+        )
+        for line in proc.stdout:
+            self.log.emit(line.rstrip())
+        if proc.wait() != 0:
+            raise RuntimeError(f"step failed: {args[0]}")
+
+    def _pip(self, *args):
+        self._run([str(self.py), "-m", "pip", "install", "--retries", "5",
+                   "--timeout", "60", "--disable-pip-version-check",
+                   "--no-warn-script-location",
+                   "--find-links", str(ENV_DIR / "wheelhouse"), *args])
+
+    def _download(self, url, dest):
+        self.log.emit(f"download {url}")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        req = urllib.request.Request(url, headers={"User-Agent": "midi-forge"})
+        with urllib.request.urlopen(req, timeout=60) as r, open(dest, "wb") as f:
+            total = int(r.headers.get("Content-Length", "0")); read = 0; last = -5
+            while True:
+                chunk = r.read(1024 * 256)
+                if not chunk:
+                    break
+                f.write(chunk); read += len(chunk)
+                if total:
+                    pct = int(read * 100 / total)
+                    if pct - last >= 5:
+                        self.status.emit(f"{Path(url).name}  {pct}%"); last = pct
+
+    def _ensure_python(self):
+        if self.py.exists():
+            return
+        self.status.emit("Downloading Python…")
+        zp = ENV_DIR / "python-embed.zip"
+        self._download(PYEMBED_URL, zp)
+        pdir = ENV_DIR / "python"; pdir.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(zp) as z:
+            z.extractall(pdir)
+        zp.unlink()
+        for pth in pdir.glob("python*._pth"):
+            pth.write_text(pth.read_text().replace("#import site", "import site"))
+        self.status.emit("Bootstrapping pip…")
+        gp = pdir / "get-pip.py"
+        self._download(GETPIP_URL, gp)
+        self._run([str(self.py), str(gp), "--no-warn-script-location"])
+        gp.unlink(missing_ok=True)
+
+    def _fetch_msst(self):
+        if (ENV_DIR / "msst" / "inference.py").exists():
+            return
+        self.status.emit("Downloading MSST…")
+        zp = ENV_DIR / "msst.zip"
+        self._download(MSST_ZIP_URL, zp)
+        with zipfile.ZipFile(zp) as z:
+            z.extractall(ENV_DIR)
+        zp.unlink()
+        ex = ENV_DIR / "Music-Source-Separation-Training-main"
+        if ex.exists():
+            if (ENV_DIR / "msst").exists():
+                shutil.rmtree(ENV_DIR / "msst", ignore_errors=True)
+            ex.rename(ENV_DIR / "msst")
+
+    def run(self):
+        try:
+            extract_payload()
+            self._ensure_python()
+            self.status.emit("Installing PyTorch + CUDA (~3 GB)…")
+            self._pip("--index-url", TORCH_INDEX, "torch==2.11.0", "torchaudio==2.11.0", "torchvision==0.26.0")
+            self._pip("torchcodec==0.11.1")
+            self.status.emit("Installing packages…")
+            self._pip("-r", str(ENV_DIR / "requirements.txt"))
+            self._pip("--no-deps", "basic-pitch==0.4.0")
+            self._pip("onnxruntime")
+            self._fetch_msst()
+            self.status.emit("Downloading model + FFmpeg (~900 MB)…")
+            self._run([str(self.py), str(ENV_DIR / "download_assets.py")])
+            self.status.emit("Verifying…")
+            self._run([str(self.py), str(ENV_DIR / "verify_install.py")])
+            READY_MARKER.write_text(APP_VERSION)
+            self.finished.emit(True, "")
+        except Exception as e:
+            self.log.emit(f"\n[ERROR] {type(e).__name__}: {e}")
+            self.finished.emit(False, str(e))
+
+
+# ---- updater ------------------------------------------------------------
+def _ver_tuple(v: str):
+    v = v.lstrip("vV")
+    parts = []
+    for p in v.split("."):
+        num = "".join(c for c in p if c.isdigit())
+        parts.append(int(num) if num else 0)
+    return tuple(parts)
+
+
+def check_update():
+    """Return (version, exe_url) if a newer release exists, else None."""
+    try:
+        req = urllib.request.Request(LATEST_API, headers={
+            "User-Agent": "midi-forge", "Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=12) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        tag = data.get("tag_name", "")
+        if _ver_tuple(tag) <= _ver_tuple(APP_VERSION):
+            return None
+        for a in data.get("assets", []):
+            if a.get("name", "").lower() == "midiforge.exe":
+                return tag, a.get("browser_download_url")
+        return None
+    except Exception:
+        return None
+
+
+def apply_update(exe_url: str) -> bool:
+    """Download the new exe next to the current one and swap on exit."""
+    if not FROZEN:
+        return False
+    cur = Path(sys.executable)
+    new = cur.with_name("MidiForge.new.exe")
+    try:
+        req = urllib.request.Request(exe_url, headers={"User-Agent": "midi-forge"})
+        with urllib.request.urlopen(req, timeout=120) as r, open(new, "wb") as f:
+            shutil.copyfileobj(r, f)
+    except Exception:
+        return False
+    bat = cur.with_name("_update.bat")
+    bat.write_text(
+        "@echo off\r\n"
+        "ping 127.0.0.1 -n 3 >nul\r\n"
+        f'del "{cur.name}"\r\n'
+        f'move "{new.name}" "{cur.name}" >nul\r\n'
+        f'start "" "{cur.name}"\r\n'
+        'del "%~f0"\r\n',
+        encoding="ascii",
+    )
+    subprocess.Popen(["cmd", "/c", str(bat)], cwd=str(cur.parent), creationflags=_NOWINDOW)
+    return True
 
 AUDIO_EXTS = {".mp3", ".wav", ".flac", ".m4a", ".ogg", ".aac", ".wma", ".aiff"}
 
@@ -217,10 +432,11 @@ def _card(title: str | None = None) -> tuple[QFrame, QVBoxLayout]:
 
 class App(QMainWindow):
     STEPS = ["Input", "Separate", "Transcribe", "Done"]
+    update_found = Signal(str, str)   # version, exe_url
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("midi-forge")
+        self.setWindowTitle(f"midi-forge  v{APP_VERSION}")
         self.resize(900, 860)
         self.setMinimumWidth(720)
         self.audio_path: Path | None = None
@@ -228,8 +444,32 @@ class App(QMainWindow):
         self.proc: QProcess | None = None
         self.mode: str = "transcribe"
         self._downloaded: Path | None = None
+        self._update_url: str | None = None
         self._apply_theme()
         self._build_ui()
+        self.update_found.connect(self._on_update_found)
+        threading.Thread(target=self._check_update, daemon=True).start()
+
+    def _check_update(self):
+        res = check_update()
+        if res:
+            self.update_found.emit(res[0], res[1])
+
+    def _on_update_found(self, version: str, url: str):
+        self._update_url = url
+        self.update_btn.setText(f"⟳  Update to {version}")
+        self.update_btn.setVisible(True)
+
+    def _do_update(self):
+        if not self._update_url:
+            return
+        self.update_btn.setEnabled(False)
+        self.update_btn.setText("Downloading update…")
+        def work():
+            ok = apply_update(self._update_url)
+            if ok:
+                QApplication.quit()
+        threading.Thread(target=work, daemon=True).start()
 
     # ---------------------------------------------------------------- theme
     def _apply_theme(self):
@@ -265,6 +505,11 @@ class App(QMainWindow):
 
             QPushButton#ghost {{ background: transparent; border: 1px solid {BORDER}; }}
             QPushButton#ghost:hover {{ background: {SURFACE2}; }}
+
+            QPushButton#update {{ background: {SUCCESS}; border: none; color: #06281c;
+                                  font-weight: 700; padding: 7px 14px; }}
+            QPushButton#update:hover {{ background: #4ade9f; }}
+            QPushButton#update:disabled {{ background: #25513f; color: #7fd6b3; }}
 
             QPushButton[seg="true"] {{ padding: 7px 16px; border-radius: 8px;
                 background: {SURFACE2}; border: 1px solid {BORDER}; color: {MUTED}; font-weight: 600; }}
@@ -328,6 +573,12 @@ class App(QMainWindow):
         sub = QLabel("Song → isolated piano → MIDI   ·   BS-Rofo-SW + Transkun V2"); sub.setObjectName("sub")
         htext.addWidget(h1); htext.addWidget(sub)
         head.addLayout(htext); head.addStretch()
+        self.update_btn = QPushButton("⟳  Update")
+        self.update_btn.setObjectName("update")
+        self.update_btn.setCursor(Qt.PointingHandCursor)
+        self.update_btn.setVisible(False)
+        self.update_btn.clicked.connect(self._do_update)
+        head.addWidget(self.update_btn, 0, Qt.AlignTop)
         outer.addLayout(head)
 
         # Stepper
@@ -617,10 +868,88 @@ class App(QMainWindow):
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.midi_path)))
 
 
+class SetupWindow(QMainWindow):
+    """First-run setup page (frozen all-in-one only). Builds the heavy env
+    in a worker thread and shows live progress, then opens the main app."""
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle(f"midi-forge  v{APP_VERSION}  —  setup")
+        self.resize(720, 540)
+        self.app_window: App | None = None
+        self.setStyleSheet(f"""
+            QMainWindow {{ background: {BG}; }}
+            QLabel {{ color: {TEXT}; background: transparent; }}
+            QPushButton {{ padding: 8px 16px; border-radius: 8px; background: {SURFACE2};
+                           border: 1px solid {BORDER}; color: {TEXT}; }}
+            QPushButton:hover {{ background: #262b35; }}
+            QProgressBar {{ border: none; border-radius: 5px; background: {SURFACE2}; height: 8px; }}
+            QProgressBar::chunk {{ background: {ACCENT}; border-radius: 5px; }}
+            QTextEdit {{ background: #0b0d11; border: 1px solid {BORDER}; border-radius: 10px;
+                         font-family: 'Cascadia Code', Consolas, monospace; font-size: 11px;
+                         color: #b9c0cc; padding: 8px; }}
+        """)
+        c = QWidget(); self.setCentralWidget(c)
+        v = QVBoxLayout(c); v.setContentsMargins(26, 22, 26, 22); v.setSpacing(12)
+
+        title = QLabel("⬣  Welcome to midi-forge")
+        title.setStyleSheet(f"font-size: 22px; font-weight: 800; color: {ACCENT};")
+        v.addWidget(title)
+        sub = QLabel("First-time setup. This downloads ~4 GB (Python, PyTorch + CUDA, the\n"
+                     "separation model) and runs once. It opens automatically when done.")
+        sub.setStyleSheet(f"color: {MUTED}; font-size: 12px;")
+        v.addWidget(sub)
+
+        self.status = QLabel("Starting…")
+        self.status.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {TEXT};")
+        v.addWidget(self.status)
+        self.bar = QProgressBar(); self.bar.setRange(0, 0); self.bar.setTextVisible(False)
+        v.addWidget(self.bar)
+        self.logbox = QTextEdit(); self.logbox.setReadOnly(True)
+        v.addWidget(self.logbox, 1)
+        self.retry = QPushButton("Retry"); self.retry.setVisible(False)
+        self.retry.clicked.connect(self._start)
+        v.addWidget(self.retry, 0, Qt.AlignLeft)
+
+        self._thread: threading.Thread | None = None
+        self._start()
+
+    def _start(self):
+        self.retry.setVisible(False)
+        self.bar.setRange(0, 0)
+        extract_payload()
+        self.installer = Installer()
+        self.installer.log.connect(self._log)
+        self.installer.status.connect(self.status.setText)
+        self.installer.finished.connect(self._done)
+        self._thread = threading.Thread(target=self.installer.run, daemon=True)
+        self._thread.start()
+
+    def _log(self, msg: str):
+        self.logbox.append(msg)
+        self.logbox.verticalScrollBar().setValue(self.logbox.verticalScrollBar().maximum())
+
+    def _done(self, ok: bool, err: str):
+        self.bar.setRange(0, 1); self.bar.setValue(1)
+        if ok:
+            self.status.setText("Done — opening midi-forge…")
+            self.status.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {SUCCESS};")
+            self.app_window = App(); self.app_window.show()
+            self.close()
+        else:
+            self.status.setText("Setup failed — see log. You can retry.")
+            self.status.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {DANGER};")
+            self.retry.setVisible(True)
+
+
 def main() -> int:
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
-    w = App()
+    # Refresh bundled scripts each launch (frozen) so app fixes ship with the exe.
+    extract_payload()
+    if FROZEN and not env_ready():
+        w = SetupWindow()
+    else:
+        w = App()
     w.show()
     return app.exec()
 
