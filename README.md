@@ -16,8 +16,8 @@ The pipeline isolates the piano from a full mix with **BS-Rofo-SW-Fixed** (SOTA 
 
 ## Install
 
-**Option 1 &mdash; `MidiForge.exe` launcher** (easiest &mdash; no Python, no git needed) ⭐
-Download `MidiForge.exe` (~12 MB) from [Releases](https://github.com/StarsationX/midi-forge/releases) and run it. On first launch it shows a setup window and builds everything it needs (Python, PyTorch + CUDA, the BS-Rofo model, FFmpeg) into `%LOCALAPPDATA%\midi-forge` &mdash; ~4 GB download, runs once. When it finishes it opens the app, and every launch after that goes straight in. Nothing to install beforehand.
+**Option 1 &mdash; `MidiForge.exe`** (easiest &mdash; no Python, no git needed) ⭐
+Download `MidiForge.exe` from [Releases](https://github.com/StarsationX/midi-forge/releases) and run it. The app opens immediately; on first run it shows an in-app setup page and builds everything it needs (Python, PyTorch + CUDA, the BS-Rofo model, FFmpeg) into `%LOCALAPPDATA%\midi-forge` &mdash; ~4 GB download, runs once. After that every launch goes straight in. It also **updates itself** &mdash; when a new version ships, a button appears in the app to one-click update. Nothing to install beforehand.
 
 **Option 2 &mdash; Setup wizard**
 Grab `midi-forge-setup-X.Y.Z.exe` from [Releases](https://github.com/StarsationX/midi-forge/releases). Double-click, follow the wizard, and on the final page tick "Run midi-forge installer". Needs Python 3.10&ndash;3.13 installed. Files go to `%LOCALAPPDATA%\midi-forge`, no admin needed.
