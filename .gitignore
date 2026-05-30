@@ -4,9 +4,11 @@ msst/
 ffmpeg/
 models/
 
-# Inno Setup output
+# Inno Setup / PyInstaller output
 dist/
+build/
 *.log
+*.spec
 
 # User work files
 stems/
