@@ -5,6 +5,10 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+# Embeddable Python (launcher / portable bundle) doesn't auto-add the script
+# dir to sys.path, so a sibling `import audio_utils` would fail. Add it ourselves.
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 FFMPEG_SHARED_BIN = str(ROOT / "ffmpeg" / "ffmpeg-master-latest-win64-lgpl-shared" / "bin")
 if Path(FFMPEG_SHARED_BIN).exists():
     os.environ["PATH"] = FFMPEG_SHARED_BIN + os.pathsep + os.environ.get("PATH", "")

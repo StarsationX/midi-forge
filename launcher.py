@@ -20,7 +20,10 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk
 
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.2.1"
+# Bump ENV_VERSION only when the dependency set changes enough to need a full
+# reinstall. App-only fixes bump APP_VERSION and just re-extract the scripts.
+ENV_VERSION = "1"
 PYVER = "3.13.5"
 
 INSTALL_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "midi-forge"
@@ -174,7 +177,7 @@ class Setup:
         self.fetch_msst()
         self.fetch_assets()
         self.verify()
-        READY_MARKER.write_text(APP_VERSION)
+        READY_MARKER.write_text(ENV_VERSION)
 
 
 def launch_app():
@@ -186,9 +189,12 @@ def launch_app():
 
 
 def is_ready() -> bool:
-    return (READY_MARKER.exists()
-            and READY_MARKER.read_text().strip() == APP_VERSION
-            and (INSTALL_DIR / "python" / "pythonw.exe").exists())
+    # Ready = the heavy environment is physically present. Checked by file
+    # existence (not marker string) so an already-installed user is never
+    # forced into a reinstall by an app-version bump. Scripts refresh each launch.
+    pyw = INSTALL_DIR / "python" / "pythonw.exe"
+    torch = INSTALL_DIR / "python" / "Lib" / "site-packages" / "torch"
+    return pyw.exists() and torch.exists()
 
 
 class SetupWindow:
