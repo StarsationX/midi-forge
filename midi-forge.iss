@@ -2,7 +2,7 @@
 ; Compile with: "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" midi-forge.iss
 
 #define AppName "midi-forge"
-#define AppVersion "1.1.1"
+#define AppVersion "1.2.0"
 #define AppPublisher "StarsationX"
 #define AppURL "https://github.com/StarsationX/midi-forge"
 

@@ -16,15 +16,16 @@ The pipeline isolates the piano from a full mix with **BS-Rofo-SW-Fixed** (SOTA 
 
 ## Install
 
-Three options. Pick whichever fits.
+**Option 1 &mdash; `MidiForge.exe` launcher** (easiest &mdash; no Python, no git needed) ⭐
+Download `MidiForge.exe` (~12 MB) from [Releases](https://github.com/StarsationX/midi-forge/releases) and run it. On first launch it shows a setup window and builds everything it needs (Python, PyTorch + CUDA, the BS-Rofo model, FFmpeg) into `%LOCALAPPDATA%\midi-forge` &mdash; ~4 GB download, runs once. When it finishes it opens the app, and every launch after that goes straight in. Nothing to install beforehand.
 
-**Option 1 &mdash; Setup wizard** (recommended for most people)
-Grab `midi-forge-setup-X.Y.Z.exe` from [Releases](https://github.com/StarsationX/midi-forge/releases). Double-click, follow the wizard, and on the final page tick "Run midi-forge installer". Files go to `%LOCALAPPDATA%\midi-forge`, no admin needed. Installer downloads Python deps + model on first run (~10 min, ~10 GB on disk).
+**Option 2 &mdash; Setup wizard**
+Grab `midi-forge-setup-X.Y.Z.exe` from [Releases](https://github.com/StarsationX/midi-forge/releases). Double-click, follow the wizard, and on the final page tick "Run midi-forge installer". Needs Python 3.10&ndash;3.13 installed. Files go to `%LOCALAPPDATA%\midi-forge`, no admin needed.
 
-**Option 2 &mdash; Portable bundle** (offline, no Python required)
-Grab `midi-forge-portable-X.Y.Z.7z.001`, `.002`, ... from [Releases](https://github.com/StarsationX/midi-forge/releases). Select all parts, right-click &rarr; 7-Zip &rarr; Extract. You get a folder with everything bundled in &mdash; no Python install, no internet needed at runtime. Just run `PianoExtractor.bat`. Bigger download (~5 GB), bigger footprint.
+**Option 3 &mdash; Portable bundle** (offline, nothing fetched at runtime)
+Grab `midi-forge-portable-X.Y.Z.7z.001`, `.002`, ... from [Releases](https://github.com/StarsationX/midi-forge/releases). Select all parts, right-click &rarr; 7-Zip &rarr; Extract. Self-contained folder &mdash; just run `PianoExtractor.bat`. Bigger download (~3 GB), no internet needed at runtime.
 
-**Option 3 &mdash; From source** (for developers / customizing the pipeline)
+**Option 4 &mdash; From source** (for developers / customizing the pipeline)
 ```cmd
 git clone https://github.com/StarsationX/midi-forge.git
 cd midi-forge
