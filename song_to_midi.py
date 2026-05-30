@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -43,9 +44,18 @@ PEAK_CEILING_DB = float(os.environ.get("PEAK_CEILING_DB", "-1.0"))
 VELOCITY_GAMMA = float(os.environ.get("VELOCITY_GAMMA", "0.85"))
 
 
+def safe_name(name: str) -> str:
+    # MSST discovers input files with glob, so [], (), *, ? etc. in the name
+    # (common in YouTube titles) break discovery. Strip them to a plain name.
+    cleaned = re.sub(r'[\[\]()*?{}<>:"|!&#%$]', "_", name)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ._")
+    return cleaned or "audio"
+
+
 def stage_input(src: Path, stage_dir: Path) -> Path:
     stage_dir.mkdir(parents=True, exist_ok=True)
-    staged = stage_dir / src.name
+    # Stage under a glob-safe filename so MSST's file scan finds it.
+    staged = stage_dir / (safe_name(src.stem) + src.suffix)
     if staged.exists():
         staged.unlink()
     try:
@@ -136,7 +146,9 @@ def main() -> int:
     print(f"Device: {device}" + (f" ({torch.cuda.get_device_name(0)})" if device == "cuda" else ""))
     print(f"Input: {src.name}")
 
-    work_dir = src.parent / "stems" / src.stem
+    # Sanitize the work-dir name too: MSST globs the input folder path, and
+    # brackets/parens in it would be read as glob character classes.
+    work_dir = src.parent / "stems" / safe_name(src.stem)
     work_dir.mkdir(parents=True, exist_ok=True)
 
     piano_wav = separate_piano(src, work_dir)

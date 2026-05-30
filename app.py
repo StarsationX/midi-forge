@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -7,6 +8,13 @@ import urllib.request
 import zipfile
 import json
 from pathlib import Path
+
+
+def safe_name(name: str) -> str:
+    # Must match song_to_midi.safe_name so the GUI finds the stems folder it writes.
+    cleaned = re.sub(r'[\[\]()*?{}<>:"|!&#%$]', "_", name)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ._")
+    return cleaned or "audio"
 
 from PySide6.QtCore import QProcess, QProcessEnvironment, Qt, QUrl, QSize, QRectF, QObject, Signal
 from PySide6.QtGui import (
@@ -20,7 +28,7 @@ from PySide6.QtWidgets import (
     QSizePolicy, QStackedWidget,
 )
 
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.3.1"
 FROZEN = getattr(sys, "frozen", False)
 
 # In a frozen all-in-one build the GUI runs from PyInstaller's bundled Python,
@@ -833,7 +841,7 @@ class App(QMainWindow):
                 self._set_step(len(self.STEPS))  # all done
                 self.open_folder_btn.setEnabled(True)
                 self.open_midi_btn.setEnabled(True)
-                stems = self.audio_path.parent / "stems" / self.audio_path.stem
+                stems = self.audio_path.parent / "stems" / safe_name(self.audio_path.stem)
                 if stems.exists():
                     self.open_stems_btn.setEnabled(True)
                 self.stage.setText(f"✓  Done — {self.midi_path.name}")
@@ -859,7 +867,7 @@ class App(QMainWindow):
 
     def _open_stems(self):
         if self.audio_path:
-            stems = self.audio_path.parent / "stems" / self.audio_path.stem
+            stems = self.audio_path.parent / "stems" / safe_name(self.audio_path.stem)
             if stems.exists():
                 QDesktopServices.openUrl(QUrl.fromLocalFile(str(stems)))
 
